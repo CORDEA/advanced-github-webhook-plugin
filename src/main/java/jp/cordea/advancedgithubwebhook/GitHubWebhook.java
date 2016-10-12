@@ -4,11 +4,14 @@ import com.squareup.moshi.Moshi;
 import hudson.Extension;
 import hudson.model.AbstractProject;
 import hudson.model.UnprotectedRootAction;
+import hudson.security.ACL;
 import jenkins.model.Jenkins;
+import jp.cordea.advancedgithubwebhook.model.Error;
 import jp.cordea.advancedgithubwebhook.model.Payload;
 import jp.cordea.advancedgithubwebhook.model.Pusher;
 import jp.cordea.advancedgithubwebhook.model.Response;
-import jp.cordea.advancedgithubwebhook.model.Error;
+import org.acegisecurity.context.SecurityContext;
+import org.acegisecurity.context.SecurityContextHolder;
 import org.apache.commons.io.IOUtils;
 import org.kohsuke.stapler.StaplerRequest;
 import org.kohsuke.stapler.StaplerResponse;
@@ -69,19 +72,25 @@ public class GitHubWebhook implements UnprotectedRootAction {
             rsp.getWriter().append('\n');
             return;
         }
-        for (AbstractProject<?, ?> item : jenkins.getAllItems(AbstractProject.class)) {
-            if (!jobName.equals(item.getName())) {
-                continue;
-            }
-            GitHubWebhookTrigger trigger = item.getTrigger(GitHubWebhookTrigger.class);
-            if (trigger != null) {
-                if (isNeedBuild(payload, trigger)) {
-                    item.scheduleBuild(0, new GitHubWebhookCause());
-                    rsp.getWriter().append(moshi.adapter(Response.class).toJson(new Response()));
-                    rsp.getWriter().append('\n');
-                    return;
+
+        SecurityContext context = ACL.impersonate(ACL.SYSTEM);
+        try {
+            for (AbstractProject<?, ?> item : jenkins.getAllItems(AbstractProject.class)) {
+                if (!jobName.equals(item.getName())) {
+                    continue;
+                }
+                GitHubWebhookTrigger trigger = item.getTrigger(GitHubWebhookTrigger.class);
+                if (trigger != null) {
+                    if (isNeedBuild(payload, trigger)) {
+                        item.scheduleBuild(0, new GitHubWebhookCause());
+                        rsp.getWriter().append(moshi.adapter(Response.class).toJson(new Response()));
+                        rsp.getWriter().append('\n');
+                        return;
+                    }
                 }
             }
+        } finally {
+            SecurityContextHolder.setContext(context);
         }
 
         rsp.getWriter().append(moshi.adapter(Response.class)
